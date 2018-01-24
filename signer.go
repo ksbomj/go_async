@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -38,10 +39,12 @@ func SingleHash(in, out chan interface{}) {
 	fmt.Println("Single")
 	// SingleHash считает значение crc32(data)+"~"+crc32(md5(data)) ( конкатенация двух строк через ~),
 	// где data - то что пришло на вход (по сути - числа из первой функции)
-	isDoWork := false
+	var totalOperations int32
 	for {
 		// fmt.Println("Single: HELP!")
-		time.Sleep(time.Millisecond * 20)
+		// start := time.Now()
+		time.Sleep(time.Millisecond * 30)
+		// fmt.Println(time.Since(start))
 		select {
 		case dataRaw := <-in:
 			data, ok := dataRaw.(int)
@@ -69,10 +72,10 @@ func SingleHash(in, out chan interface{}) {
 				}(strData)
 				wg.Wait()
 				out <- strCrc32 + "~" + strMd5
-				isDoWork = true
+				atomic.AddInt32(&totalOperations, 1)
 			}(data)
 		default:
-			if isDoWork {
+			if atomic.LoadInt32(&totalOperations) > 0 {
 				fmt.Println("goodbye Single")
 				return
 			}
@@ -87,7 +90,7 @@ func MultiHash(in, out chan interface{}) {
 	// где th=0..5 ( т.е. 6 хешей на каждое входящее значение ),
 	// потом берёт конкатенацию результатов в порядке расчета (0..5),
 	// где data - то что пришло на вход (и ушло на выход из SingleHash)
-	isDoWork := false
+	var totalOperations int32
 	for {
 		// fmt.Println("Multi: HELP!")
 		select {
@@ -112,12 +115,12 @@ func MultiHash(in, out chan interface{}) {
 				for _, item := range arrTemp {
 					temp += item
 				}
-				fmt.Println(temp)
+				// fmt.Println(temp)
 				out <- temp
-				isDoWork = true
+				atomic.AddInt32(&totalOperations, 1)
 			}(data)
 		default:
-			if isDoWork {
+			if atomic.LoadInt32(&totalOperations) > 0 {
 				fmt.Println("goodbye Multi")
 				return
 			}
@@ -156,22 +159,22 @@ func CombineResults(in, out chan interface{}) {
 	fmt.Println("Combine")
 	var result []string
 	var temp string
-	isDoWork := false
+	var totalOperations int32
 LOOP:
 	for {
 		select {
 		case dataRaw := <-in:
-			fmt.Println("Combine: HELP!")
+			// fmt.Println("Combine: HELP!")
 			data, ok := dataRaw.(string)
 			if !ok {
 				fmt.Println("cant convert result data to string")
 			}
-			fmt.Println(data)
+			// fmt.Println(data)
 			result = append(result, data)
-			isDoWork = true
+			atomic.AddInt32(&totalOperations, 1)
 		default:
-			if isDoWork {
-				fmt.Println("goodbye Multi")
+			if atomic.LoadInt32(&totalOperations) > 0 {
+				fmt.Println("goodbye Combine")
 				break LOOP
 			}
 		}
@@ -195,7 +198,7 @@ LOOP:
 			temp += str
 		}
 	}
-	fmt.Println("Out result: ", temp)
+	// fmt.Println("Out result: ", temp)
 	// fmt.Println(temp)
 	out <- temp
 	return

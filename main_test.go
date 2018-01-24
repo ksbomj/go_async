@@ -42,35 +42,35 @@ import (
 
 // }
 
-func TestSingleToMulti(t *testing.T) {
+// func TestSingleToMulti(t *testing.T) {
 
-	testResult := "NOT_SET"
-	testExpected := "29568666068035183841425683795340791879727309630931025356555"
-	start := time.Now()
-	freeFlowJobs := []job{
-		job(func(in, out chan interface{}) {
-			out <- 0
-			out <- 1
-			out <- 2
-		}),
-		job(SingleHash),
-		job(MultiHash),
-		job(CombineResults),
-		job(func(in, out chan interface{}) {
-			dataRaw := <-in
-			data, ok := dataRaw.(string)
-			if !ok {
-				t.Error("cant convert result data to string")
-			}
-			testResult = data
-		}),
-	}
-	ExecutePipeline(freeFlowJobs...)
-	fmt.Println(time.Since(start))
-	if testExpected != testResult {
-		t.Errorf("results not match\nGot: %v\nExpected: %v", testResult, testExpected)
-	}
-}
+// 	testResult := "NOT_SET"
+// 	testExpected := "29568666068035183841425683795340791879727309630931025356555"
+// 	// start := time.Now()
+// 	freeFlowJobs := []job{
+// 		job(func(in, out chan interface{}) {
+// 			out <- 0
+// 			out <- 1
+// 			out <- 2
+// 		}),
+// 		job(SingleHash),
+// 		job(MultiHash),
+// 		job(CombineResults),
+// 		job(func(in, out chan interface{}) {
+// 			dataRaw := <-in
+// 			data, ok := dataRaw.(string)
+// 			if !ok {
+// 				t.Error("cant convert result data to string")
+// 			}
+// 			testResult = data
+// 		}),
+// 	}
+// 	ExecutePipeline(freeFlowJobs...)
+// 	// fmt.Println(time.Since(start))
+// 	if testExpected != testResult {
+// 		t.Errorf("results not match\nGot: %v\nExpected: %v", testResult, testExpected)
+// 	}
+// }
 
 func TestPipeline(t *testing.T) {
 
