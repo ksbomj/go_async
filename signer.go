@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -14,44 +13,39 @@ ExecutePipeline - function conveyor
 */
 func ExecutePipeline(freeFlowJobs ...job) {
 	wg := &sync.WaitGroup{}
-	chanIn := make(chan interface{}, 100)
-	chanOut := make(chan interface{}, 100)
+	defer wg.Wait()
+
+	chanIn := make(chan interface{}, 1)
+	chanOut := make(chan interface{}, 1)
+
 	for _, freeJob := range freeFlowJobs {
 		chanIn = chanOut
-		chanOut = make(chan interface{}, 100)
+		chanOut = make(chan interface{}, 1)
 		wg.Add(1)
 		go func(someJob job, in, out chan interface{}) {
 			someJob(in, out)
-			// freeJob(chanIn, chanOut)
 			wg.Done()
+			close(out)
 		}(freeJob, chanIn, chanOut)
-		// time.Sleep(time.Millisecond * 10)
-		// runtime.Gosched()
 	}
-	wg.Wait()
-	fmt.Println("End pipeline")
 }
 
-/*
-SingleHash ...
-*/
 func SingleHash(in, out chan interface{}) {
 	fmt.Println("Single")
 	// SingleHash считает значение crc32(data)+"~"+crc32(md5(data)) ( конкатенация двух строк через ~),
 	// где data - то что пришло на вход (по сути - числа из первой функции)
-	var totalOperations int32
+	wgMain := sync.WaitGroup{}
+LOOP:
 	for {
-		// fmt.Println("Single: HELP!")
-		// start := time.Now()
 		time.Sleep(time.Millisecond * 30)
-		// fmt.Println(time.Since(start))
 		select {
 		case dataRaw := <-in:
 			data, ok := dataRaw.(int)
 			if !ok {
-				fmt.Println(dataRaw)
-				fmt.Println("cant convert result data to string")
+				fmt.Println("Single: cant convert result data to string")
+				break LOOP
 			}
+			wgMain.Add(1)
 			go func(someData int) {
 				fmt.Println(someData)
 				strData := strconv.Itoa(someData)
@@ -62,26 +56,23 @@ func SingleHash(in, out chan interface{}) {
 				go func(temp string) {
 					strCrc32 = DataSignerCrc32(temp)
 					wg.Done()
-					// strCrc32 = DataSignerCrc32(strData)
 				}(strData)
 				wg.Add(1)
 				go func(temp string) {
 					strMd5 = DataSignerCrc32(DataSignerMd5(temp))
 					wg.Done()
-					// strMd5 = DataSignerCrc32(DataSignerMd5(strData))
 				}(strData)
 				wg.Wait()
 				out <- strCrc32 + "~" + strMd5
-				atomic.AddInt32(&totalOperations, 1)
+				wgMain.Done()
 			}(data)
-		default:
-			if atomic.LoadInt32(&totalOperations) > 0 {
-				fmt.Println("goodbye Single")
-				return
-			}
 			continue
 		}
 	}
+	fmt.Println("Single wait...")
+	wgMain.Wait()
+	fmt.Println("Single done")
+	return
 }
 
 func MultiHash(in, out chan interface{}) {
@@ -90,16 +81,18 @@ func MultiHash(in, out chan interface{}) {
 	// где th=0..5 ( т.е. 6 хешей на каждое входящее значение ),
 	// потом берёт конкатенацию результатов в порядке расчета (0..5),
 	// где data - то что пришло на вход (и ушло на выход из SingleHash)
-	var totalOperations int32
+	// var totalOperations int32
+	wgMain := &sync.WaitGroup{}
+LOOP:
 	for {
-		// fmt.Println("Multi: HELP!")
 		select {
 		case dataRaw := <-in:
 			data, ok := dataRaw.(string)
 			if !ok {
-				fmt.Println("cant convert result data to string")
-				return
+				fmt.Println("Multi :cant convert result data to string")
+				break LOOP
 			}
+			wgMain.Add(1)
 			go func(s string) {
 				wg := &sync.WaitGroup{}
 				var arrTemp [6]string
@@ -115,42 +108,17 @@ func MultiHash(in, out chan interface{}) {
 				for _, item := range arrTemp {
 					temp += item
 				}
-				// fmt.Println(temp)
+				fmt.Println("temp:", temp)
 				out <- temp
-				atomic.AddInt32(&totalOperations, 1)
+				wgMain.Done()
 			}(data)
-		default:
-			if atomic.LoadInt32(&totalOperations) > 0 {
-				fmt.Println("goodbye Multi")
-				return
-			}
+			continue
 		}
 	}
-	// }
-	// for dataRaw := range in {
-	// 	data, ok := dataRaw.(string)
-	// 	if !ok {
-	// 		fmt.Println("cant convert result data to string")
-	// 	}
-	// 	go func(s string) {
-	// 		wg := &sync.WaitGroup{}
-	// 		var arrTemp [6]string
-	// 		temp := ""
-	// 		for i := 0; i < 6; i++ {
-	// 			wg.Add(1)
-	// 			go func(j int, someData string) {
-	// 				arrTemp[j] = DataSignerCrc32(strconv.Itoa(j) + someData)
-	// 				wg.Done()
-	// 			}(i, data)
-	// 		}
-	// 		wg.Wait()
-	// 		for _, item := range arrTemp {
-	// 			temp += item
-	// 		}
-	// 		fmt.Println(temp)
-	// 		out <- temp
-	// 	}(data)
-	// }
+	fmt.Println("Multi wait...")
+	wgMain.Wait()
+	fmt.Println("Multi done")
+	return
 }
 
 func CombineResults(in, out chan interface{}) {
@@ -159,35 +127,19 @@ func CombineResults(in, out chan interface{}) {
 	fmt.Println("Combine")
 	var result []string
 	var temp string
-	var totalOperations int32
+	// var totalOperations int32
 LOOP:
 	for {
 		select {
 		case dataRaw := <-in:
-			// fmt.Println("Combine: HELP!")
 			data, ok := dataRaw.(string)
 			if !ok {
-				fmt.Println("cant convert result data to string")
-			}
-			// fmt.Println(data)
-			result = append(result, data)
-			atomic.AddInt32(&totalOperations, 1)
-		default:
-			if atomic.LoadInt32(&totalOperations) > 0 {
-				fmt.Println("goodbye Combine")
+				fmt.Println("Combine: cant convert result data to string")
 				break LOOP
 			}
+			result = append(result, data)
 		}
 	}
-	// for dataRaw := range in {
-	// 	fmt.Println("Combine: HELP!")
-	// 	data, ok := dataRaw.(string)
-	// 	if !ok {
-	// 		fmt.Println("cant convert result data to string")
-	// 	}
-	// 	fmt.Println(data)
-	// 	result = append(result, data)
-	// }
 	fmt.Println("End append")
 	sort.Strings(result)
 	temp = ""
@@ -198,18 +150,7 @@ LOOP:
 			temp += str
 		}
 	}
-	// fmt.Println("Out result: ", temp)
-	// fmt.Println(temp)
+	fmt.Println(temp)
 	out <- temp
 	return
 }
-
-// crc32 считается через функцию DataSignerCrc32
-// md5 считается через DataSignerMd5
-// В чем подвох:
-
-// DataSignerMd5 может одновременно вызываться только 1 раз, считается 10 мс.
-// Если одновременно запустится несколько - будет перегрев на 1 сек
-// DataSignerCrc32, считается 1 сек
-// На все расчеты у нас 3 сек.
-// Если делать в лоб, линейно - для 7 элементов это займёт почти 57 секунд, следовательно надо это как-то распараллелить
